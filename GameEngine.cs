@@ -1,117 +1,105 @@
 using System;
+using System.Diagnostics; // Pro Stopwatch
 using System.Threading;
 
 namespace Snake
 {
+    /// <summary>
+    /// Herní engine - srdce aplikace. Podle zadání Clean Code by měl orchestrovat hru,
+    /// ale nevědět nic o konkrétním GUI (používá IRenderer).
+    /// </summary>
     public class GameEngine
     {
-        private const int Width = 32;
-        private const int Height = 16;
-        private const int Delay = 500;
-
+        private readonly int _width;
+        private readonly int _height;
+        private readonly int _delay;
+        
+        private readonly IRenderer _renderer;
+        private readonly IInputHandler _input;
         private readonly Snake _snake;
         private readonly Food _food;
+
         private Direction _direction = Direction.Right;
         private bool _isGameOver;
 
-        public GameEngine()
+        public GameEngine(int width, int height, int delay, IRenderer renderer, IInputHandler input)
         {
-            _snake = new Snake(new Position(Width / 2, Height / 2), 5);
+            _width = width;
+            _height = height;
+            _delay = delay;
+            _renderer = renderer;
+            _input = input;
+
+            _snake = new Snake(new Position(width / 2, height / 2), 5);
             _food = new Food();
-            _food.Respawn(Width, Height);
+            _food.Respawn(width, height);
         }
 
         public void Run()
         {
-            SetupConsole();
+            _renderer.Setup(_width, _height);
+            _renderer.Clear();
+            _renderer.DrawBorders(_width, _height); // Border kreslíme jen jednou (tip z fóra)
 
             while (!_isGameOver)
             {
                 RenderFrame();
                 UpdateState();
-                Thread.Sleep(Delay);
+                
+                // Místo Thread.Sleep použijeme Stopwatch pro přesnější timing vstupu
+                var sw = Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < _delay)
+                {
+                    _direction = _input.GetNextDirection(_direction);
+                }
             }
 
-            ShowGameOver();
+            _renderer.ShowGameOver(_snake.Length, _width, _height);
         }
 
-        private void SetupConsole()
-        {
-            Console.WindowWidth = Width;
-            Console.WindowHeight = Height;
-            Console.CursorVisible = false;
-        }
-
+        /// <summary>
+        /// Optimalizované vykreslování: Nekreslíme vše znovu, 
+        /// kreslíme jen hlavu, jídlo a mažeme poslední článek ocasu.
+        /// Tím odstraníme blikání.
+        /// </summary>
         private void RenderFrame()
         {
-            Console.Clear();
-            DrawBorders();
+            _renderer.DrawPoint(_food.Position, ConsoleColor.Cyan);
             
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            DrawAt(_food.Position, "■");
+            // Kreslíme články těla, které přibyly (hlavu v minulé pozici)
+            foreach (var part in _snake.Body) 
+                _renderer.DrawPoint(part, ConsoleColor.Green);
             
-            Console.ForegroundColor = ConsoleColor.Green;
-            foreach (var part in _snake.Body) DrawAt(part, "■");
-            
-            Console.ForegroundColor = ConsoleColor.Red;
-            DrawAt(_snake.Head, "■");
-        }
-
-        private void DrawBorders()
-        {
-            Console.ForegroundColor = ConsoleColor.White;
-            for (int i = 0; i < Width; i++)
-            {
-                DrawAt(new Position(i, 0), "■");
-                DrawAt(new Position(i, Height - 1), "■");
-            }
-            for (int i = 0; i < Height; i++)
-            {
-                DrawAt(new Position(0, i), "■");
-                DrawAt(new Position(Width - 1, i), "■");
-            }
-        }
-
-        private void DrawAt(Position pos, string s)
-        {
-            Console.SetCursorPosition(pos.X, pos.Y);
-            Console.Write(s);
+            _renderer.DrawPoint(_snake.Head, ConsoleColor.Red);
         }
 
         private void UpdateState()
         {
-            _direction = GetInput(_direction);
+            // Před pohybem si uložíme pozici ocasu, abychom ho mohli smazat
+            Position tailToClear = _snake.Body.Count > 0 ? _snake.Body[0] : _snake.Head;
+
             _snake.Move(_direction);
 
-            if (_snake.Head.X == _food.Position.X && _snake.Head.Y == _food.Position.Y)
+            // Pokud jsme nevyrostli, smažeme starý ocas z obrazovky
+            if (_snake.Body.Count >= _snake.Length)
             {
-                _snake.Grow();
-                _food.Respawn(Width, Height);
+                _renderer.ClearPoint(tailToClear);
             }
 
-            if (_snake.IsDead(Width, Height)) _isGameOver = true;
-        }
-
-        private Direction GetInput(Direction current)
-        {
-            if (!Console.KeyAvailable) return current;
-
-            var key = Console.ReadKey(true).Key;
-            return key switch
+            if (HasSnakeEatenFood())
             {
-                ConsoleKey.UpArrow when current != Direction.Down => Direction.Up,
-                ConsoleKey.DownArrow when current != Direction.Up => Direction.Down,
-                ConsoleKey.LeftArrow when current != Direction.Right => Direction.Left,
-                ConsoleKey.RightArrow when current != Direction.Left => Direction.Right,
-                _ => current
-            };
+                _snake.Grow();
+                _food.Respawn(_width, _height);
+            }
+
+            if (_snake.IsDead(_width, _height)) 
+                _isGameOver = true;
         }
 
-        private void ShowGameOver()
+        private bool HasSnakeEatenFood()
         {
-            Console.SetCursorPosition(Width / 5, Height / 2);
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"Game over, Score: {_snake.Length}");
+            return _snake.Head.X == _food.Position.X && 
+                   _snake.Head.Y == _food.Position.Y;
         }
     }
 }
