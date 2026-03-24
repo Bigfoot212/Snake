@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -6,7 +7,11 @@ namespace Snake
     public class Snake
     {
         public Position Head { get; private set; }
-        public List<Position> Body { get; private set; } = new List<Position>();
+        
+        // Zapouzdření - vracíme ReadOnly, aby nikdo zvenku nemohl měnit články
+        public IReadOnlyList<Position> Body => _body.AsReadOnly();
+        private readonly List<Position> _body = new List<Position>();
+        
         public int Length { get; private set; }
 
         public Snake(Position startPosition, int initialLength)
@@ -17,9 +22,9 @@ namespace Snake
 
         public void Move(Direction direction)
         {
-            Body.Add(Head);
+            _body.Add(Head);
             Head = GetNextPosition(direction);
-            if (Body.Count > Length) Body.RemoveAt(0);
+            if (_body.Count > Length) _body.RemoveAt(0);
         }
 
         public void Grow() => Length++;
@@ -37,7 +42,7 @@ namespace Snake
 
         private bool IsHittingItself()
         {
-            return Body.Any(p => p.X == Head.X && p.Y == Head.Y);
+            return _body.Any(p => p.X == Head.X && p.Y == Head.Y);
         }
 
         private Position GetNextPosition(Direction dir) => dir switch

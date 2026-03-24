@@ -1,15 +1,14 @@
 using System;
-using System.Diagnostics; // Pro Stopwatch
+using System.Diagnostics;
 using System.Threading;
 
 namespace Snake
 {
-    /// <summary>
-    /// Herní engine - srdce aplikace. Podle zadání Clean Code by měl orchestrovat hru,
-    /// ale nevědět nic o konkrétním GUI (používá IRenderer).
-    /// </summary>
     public class GameEngine
     {
+        // Magic numbers nahrazeny konstantami s jasným významem
+        private const int DefaultInitialLength = 5;
+        
         private readonly int _width;
         private readonly int _height;
         private readonly int _delay;
@@ -30,7 +29,7 @@ namespace Snake
             _renderer = renderer;
             _input = input;
 
-            _snake = new Snake(new Position(width / 2, height / 2), 5);
+            _snake = new Snake(new Position(width / 2, height / 2), DefaultInitialLength);
             _food = new Food();
             _food.Respawn(width, height);
         }
@@ -39,51 +38,49 @@ namespace Snake
         {
             _renderer.Setup(_width, _height);
             _renderer.Clear();
-            _renderer.DrawBorders(_width, _height); // Border kreslíme jen jednou (tip z fóra)
+            _renderer.DrawBorders(_width, _height);
 
             while (!_isGameOver)
             {
                 RenderFrame();
                 UpdateState();
                 
-                // Místo Thread.Sleep použijeme Stopwatch pro přesnější timing vstupu
-                var sw = Stopwatch.StartNew();
-                while (sw.ElapsedMilliseconds < _delay)
-                {
-                    _direction = _input.GetNextDirection(_direction);
-                }
+                WaitForNextFrame();
             }
 
             _renderer.ShowGameOver(_snake.Length, _width, _height);
         }
 
-        /// <summary>
-        /// Optimalizované vykreslování: Nekreslíme vše znovu, 
-        /// kreslíme jen hlavu, jídlo a mažeme poslední článek ocasu.
-        /// Tím odstraníme blikání.
-        /// </summary>
+        private void WaitForNextFrame()
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < _delay)
+            {
+                _direction = _input.GetNextDirection(_direction);
+                Thread.Sleep(1); // Neužírat 100% CPU při čekání
+            }
+        }
+
         private void RenderFrame()
         {
-            _renderer.DrawPoint(_food.Position, ConsoleColor.Cyan);
-            
-            // Kreslíme články těla, které přibyly (hlavu v minulé pozici)
-            foreach (var part in _snake.Body) 
-                _renderer.DrawPoint(part, ConsoleColor.Green);
-            
-            _renderer.DrawPoint(_snake.Head, ConsoleColor.Red);
+            // Engine už neřeší barvy, jen říká CO se má kreslit
+            _renderer.DrawFood(_food.Position);
+            _renderer.DrawSnakeBody(_snake.Body);
+            _renderer.DrawHead(_snake.Head);
         }
 
         private void UpdateState()
         {
-            // Před pohybem si uložíme pozici ocasu, abychom ho mohli smazat
-            Position tailToClear = _snake.Body.Count > 0 ? _snake.Body[0] : _snake.Head;
+            // Uložíme si, kde končil ocas v minulém tahu
+            // Pokud se pohneme a nevyrosteme, Renderer ho smaže
+            Position? tailToClear = _snake.Body.Count > 0 ? _snake.Body[0] : null;
 
             _snake.Move(_direction);
 
-            // Pokud jsme nevyrostli, smažeme starý ocas z obrazovky
-            if (_snake.Body.Count >= _snake.Length)
+            // Pokud jsme nevyrostli, Renderer smaže starý konec ocasu
+            if (_snake.Body.Count >= _snake.Length && tailToClear.HasValue)
             {
-                _renderer.ClearPoint(tailToClear);
+                _renderer.ClearPoint(tailToClear.Value);
             }
 
             if (HasSnakeEatenFood())
